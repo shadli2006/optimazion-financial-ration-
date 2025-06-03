@@ -1,42 +1,25 @@
-### 3. src/preprocessing.py
-python
 import pandas as pd
-import numpy as np
-from config import PROCESSED_DATA_DIR
+import logging
 
 def preprocess_data(df):
-    """Preprocessing data keuangan"""
-    # Validasi kolom
-    required_cols = ['Nama_Bank', 'Periode', 'ROA', 'ROE', 'NIM', 'NPL', 'Harga_Saham']
-    if not all(col in df.columns for col in required_cols):
-        missing = [col for col in required_cols if col not in df.columns]
-        print(f"Kolom wajib tidak ditemukan: {missing}")
+    try:
+        percent_cols = ['ROA', 'ROE', 'NIM', 'NPL', 'CAR']
+        for col in percent_cols:
+            if col in df.columns and df[col].dtype == 'object':
+                df[col] = df[col].str.replace('%', '', regex=False).astype(float) / 100
+
+        if 'Harga_Saham' in df.columns:
+            df['Harga_Saham'] = pd.to_numeric(df['Harga_Saham'], errors='coerce')
+            df['Harga_Saham'] = df.groupby('Nama_Bank')['Harga_Saham'].ffill().bfill()
+
+        df['Harga_Saham_Next'] = df.groupby('Nama_Bank')['Harga_Saham'].shift(-1)
+        df = df.dropna(subset=['Harga_Saham_Next'])
+
+        if 'Periode' in df.columns:
+            df['Periode'] = df['Periode'].str.replace('Q1', '03-31').str.replace('Q2', '06-30')
+            df['Periode'] = df['Periode'].str.replace('Q3', '09-30').str.replace('Q4', '12-31')
+            df['Periode'] = pd.to_datetime(df['Periode'] + '-2024', format='%m-%d-%Y', errors='coerce')
+        return df
+    except Exception as e:
+        logging.error(f"Preprocessing error: {e}")
         return None
-    
-    # Konversi tipe data
-    numeric_cols = ['ROA', 'ROE', 'NIM', 'NPL', 'Harga_Saham']
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    # Handle missing values
-    initial_count = len(df)
-    df = df.dropna(subset=numeric_cols)
-    
-    # Buat target variable
-    df['Harga_Saham_Next'] = df.groupby('Nama_Bank')['Harga_Saham'].shift(-1)
-    df = df.dropna(subset=['Harga_Saham_Next'])
-    
-    # Hitung return historis
-    df['Return_Historis'] = df.groupby('Nama_Bank')['Harga_Saham'].pct_change()
-    
-    # Urutkan data
-    df = df.sort_values(by=['Nama_Bank', 'Periode'])
-    
-    print(f"Data setelah preprocessing: {len(df)} baris (Dihapus {initial_count - len(df)})")
-    
-    # Simpan data yang telah diproses
-    processed_path = os.path.join(PROCESSED_DATA_DIR, 'processed_data.csv')
-    df.to_csv(processed_path, index=False)
-    print(f"Data yang telah diproses disimpan di: {processed_path}")
-    
-    return df
